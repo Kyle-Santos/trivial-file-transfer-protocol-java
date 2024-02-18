@@ -94,9 +94,15 @@ public class Client {
         socket.send(packet);
         System.out.println("WRQ sent.");
         
-        // Receiving ACK
+        // Receiving ACK or error packet
         packet = new DatagramPacket(data, data.length);
         socket.receive(packet);
+
+        // Check if received packet is an error packet
+        if (data[1] == OP_ERROR) {
+            handleTFTPError(packet);
+            return;
+        }
 
         int blockNumber = 1;
 
@@ -119,6 +125,12 @@ public class Client {
             packet = new DatagramPacket(data, data.length);
             socket.receive(packet);
             blockNumber++;
+
+            // Check if received packet is an error packet
+            if (data[1] == OP_ERROR) {
+                handleTFTPError(packet);
+                return;
+            }
         }
         
         // Close file stream
@@ -149,6 +161,12 @@ public class Client {
 
             // receive packet from TFTP server
             socket.receive(inpacket);
+
+            // Check if received packet is an error packet
+            if (data[1] == OP_ERROR) {
+                handleTFTPError(packet);
+                return;
+            }
 
             // Extract block number from the received packet
             int receivedBlockNumber = ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
@@ -228,4 +246,12 @@ public class Client {
 
         return packetStream;
     }
+
+    private static void handleTFTPError(DatagramPacket packet) {
+        byte[] data = packet.getData();
+        int errorCode = ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
+        String errorMessage = new String(data, 4, packet.getLength() - 4);
+        System.out.println("Error received from server: " + errorCode + " - " + errorMessage);
+    }
+    
 }
