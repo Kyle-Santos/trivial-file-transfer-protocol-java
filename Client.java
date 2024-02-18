@@ -38,7 +38,7 @@ public class Client {
 
         String input;
         do {
-            System.out.println("Current Setting:\nBlocksize: " + blocksize + "\nOperation: " + operation);
+            System.out.println("\nCurrent Setting:\nBlocksize: " + blocksize + "\nOperation: " + operation);
             System.out.println("\nMenu:\n[1] Proceed\n[2] Change Blocksize\n[3] Exit\n");
             input = scan.nextLine();
 
@@ -47,9 +47,9 @@ public class Client {
                     break;
                 
                 case "2":
-                    System.out.println("Enter new blocksize: ");
+                    System.out.print("\nEnter new blocksize: ");
                     blocksize = scan.nextInt();
-                    scan.next();
+                    scan.nextLine();
                     break;
 
                 case "3":
@@ -59,6 +59,7 @@ public class Client {
                     System.out.println("Invalid input.");
             }
         } while (!input.equals("1"));
+
 
         try (DatagramSocket socket = new DatagramSocket()) {
             serverAddress = InetAddress.getByName(serverIP);
@@ -86,7 +87,7 @@ public class Client {
         // Implementation for uploading file
         byte[] data = new byte[blocksize];
         DatagramPacket packet;
-        FileInputStream fileInputStream = new FileInputStream(localFile);
+        FileInputStream fileInputStream = new FileInputStream(localFile); 
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         
         // Create WRQ packet
