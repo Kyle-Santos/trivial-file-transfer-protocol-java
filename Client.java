@@ -12,6 +12,7 @@ public class Client {
     private static final int SERVER_PORT = 69;
     private static final int TIMEOUT = 10000; // 10 seconds
     private static InetAddress serverAddress = null;
+    private static String localFile = null;
     private static String remoteFile = null;
     private static int blocksize = 516;
 
@@ -32,7 +33,7 @@ public class Client {
 
         String serverIP = args[0];
         String operation = args[1].toLowerCase();
-        String localFile = args[2];
+        localFile = args[2];
         remoteFile = (args.length == 4) ? args[3] : null;
 
         String input;
@@ -43,11 +44,12 @@ public class Client {
 
             switch (input) {
                 case "1":
-                    System.out.println("Enter new blocksize: ");
-                    blocksize = scan.nextInt();
                     break;
                 
                 case "2":
+                    System.out.println("Enter new blocksize: ");
+                    blocksize = scan.nextInt();
+                    scan.next();
                     break;
 
                 case "3":
@@ -56,7 +58,7 @@ public class Client {
                 default:
                     System.out.println("Invalid input.");
             }
-        } while (input.equals("2"));
+        } while (!input.equals("1"));
 
         try (DatagramSocket socket = new DatagramSocket()) {
             serverAddress = InetAddress.getByName(serverIP);
@@ -64,11 +66,11 @@ public class Client {
 
             switch (operation) {
                 case "upload":
-                    uploadFile(socket, localFile);
+                    uploadFile(socket);
                     break;
                 case "download":
                     System.out.println("Downloading...");
-                    downloadFile(socket, localFile);
+                    downloadFile(socket);
                     break;
                 default:
                     System.out.println("Invalid operation. Use 'upload' or 'download'.");
@@ -80,9 +82,9 @@ public class Client {
     }
 
 
-    private static void uploadFile(DatagramSocket socket, String localFile) throws IOException {
+    private static void uploadFile(DatagramSocket socket) throws IOException {
         // Implementation for uploading file
-        byte[] data = new byte[516];
+        byte[] data = new byte[blocksize];
         DatagramPacket packet;
         FileInputStream fileInputStream = new FileInputStream(localFile);
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -109,7 +111,7 @@ public class Client {
         int bytesRead;
 
         while ((bytesRead = fileInputStream.read(data, 4, data.length - 4)) != -1) {
-            System.out.println("Packet count: " + blockNumber);
+            System.out.println("bytes: " + data.length);
 
             // write opcode and block number in to the byte array output stream
             writeOPCodeBlock(byteArrayOutputStream, blockNumber, OP_DATAPACKET);
@@ -137,9 +139,9 @@ public class Client {
         fileInputStream.close();
     }
 
-    private static void downloadFile(DatagramSocket socket, String localFile) throws IOException {
+    private static void downloadFile(DatagramSocket socket) throws IOException {
         // Implementation for downloading file
-        byte[] data = new byte[516];
+        byte[] data = new byte[blocksize];
         DatagramPacket inpacket, outpacket ;
         DatagramPacket ack = null;
         FileOutputStream fileOutputStream = new FileOutputStream(localFile);
@@ -164,7 +166,7 @@ public class Client {
 
             // Check if received packet is an error packet
             if (data[1] == OP_ERROR) {
-                handleTFTPError(packet);
+                handleTFTPError(inpacket);
                 return;
             }
 
@@ -211,25 +213,18 @@ public class Client {
         // blksize request | Append blksize option (example: blksize 1024)
         byteArrayOutputStream.write("blksize".getBytes());
         byteArrayOutputStream.write(0);
-        // Write the high byte of block size
-        byteArrayOutputStream.write((blocksize >> 8) & 0xFF);
-        // Write the low byte of block size
-        byteArrayOutputStream.write(blocksize & 0xFF);
+        byteArrayOutputStream.write(Integer.toString(blocksize - 4).getBytes());
         byteArrayOutputStream.write(0);
 
         // tsize request
-        if (OP == OP_WRQ && remoteFile != null) {
-            File file = new File(remoteFile);
+        if (OP == OP_WRQ && localFile != null) {
+            File file = new File(localFile);
             long fileSize = file.length();
             if (fileSize > 0) {
                 // Append tsize option
                 byteArrayOutputStream.write("tsize".getBytes());
                 byteArrayOutputStream.write(0);
-                // Write the file size as a 32-bit binary value in network byte order
-                byteArrayOutputStream.write((int) (fileSize >> 24) & 0xFF);
-                byteArrayOutputStream.write((int) (fileSize >> 16) & 0xFF);
-                byteArrayOutputStream.write((int) (fileSize >> 8) & 0xFF);
-                byteArrayOutputStream.write((int) fileSize & 0xFF);
+                byteArrayOutputStream.write(Long.toString(fileSize).getBytes());
                 byteArrayOutputStream.write(0);
             }
         }
