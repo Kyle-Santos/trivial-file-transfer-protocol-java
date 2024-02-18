@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.util.Scanner;
 
 public class Client {
     private static final int SERVER_PORT = 69;
@@ -27,12 +28,35 @@ public class Client {
             return;
         }
 
+        Scanner scan = new Scanner(System.in);
+
         String serverIP = args[0];
         String operation = args[1].toLowerCase();
         String localFile = args[2];
         remoteFile = (args.length == 4) ? args[3] : null;
 
-        System.out.println("Current Setting:\nBlocksize: " + blocksize + "\nOperation: " + operation);
+        String input;
+        do {
+            System.out.println("Current Setting:\nBlocksize: " + blocksize + "\nOperation: " + operation);
+            System.out.println("\nMenu:\n[1] Proceed\n[2] Change Blocksize\n[3] Exit\n");
+            input = scan.nextLine();
+
+            switch (input) {
+                case "1":
+                    System.out.println("Enter new blocksize: ");
+                    blocksize = scan.nextInt();
+                    break;
+                
+                case "2":
+                    break;
+
+                case "3":
+                    return;
+            
+                default:
+                    System.out.println("Invalid input.");
+            }
+        } while (input.equals("2"));
 
         try (DatagramSocket socket = new DatagramSocket()) {
             serverAddress = InetAddress.getByName(serverIP);
@@ -166,27 +190,31 @@ public class Client {
         byteArrayOutputStream.write("octet".getBytes());
         byteArrayOutputStream.write(0);
 
-        // blksize request
-    if (OP == OP_WRQ) {
-        // Append blksize option (example: blksize 1024)
+        // blksize request | Append blksize option (example: blksize 1024)
         byteArrayOutputStream.write("blksize".getBytes());
         byteArrayOutputStream.write(0);
-        byteArrayOutputStream.write("1024".getBytes()); // Adjust the block size as needed
+        // Write the high byte of block size
+        byteArrayOutputStream.write((blocksize >> 8) & 0xFF);
+        // Write the low byte of block size
+        byteArrayOutputStream.write(blocksize & 0xFF);
         byteArrayOutputStream.write(0);
-    }
 
-    // tsize request
-    if (OP == OP_WRQ && remoteFile != null) {
-        File file = new File(remoteFile);
-        long fileSize = file.length();
-        if (fileSize > 0) {
-            // Append tsize option
-            byteArrayOutputStream.write("tsize".getBytes());
-            byteArrayOutputStream.write(0);
-            byteArrayOutputStream.write(String.valueOf(fileSize).getBytes());
-            byteArrayOutputStream.write(0);
+        // tsize request
+        if (OP == OP_WRQ && remoteFile != null) {
+            File file = new File(remoteFile);
+            long fileSize = file.length();
+            if (fileSize > 0) {
+                // Append tsize option
+                byteArrayOutputStream.write("tsize".getBytes());
+                byteArrayOutputStream.write(0);
+                // Write the file size as a 32-bit binary value in network byte order
+                byteArrayOutputStream.write((int) (fileSize >> 24) & 0xFF);
+                byteArrayOutputStream.write((int) (fileSize >> 16) & 0xFF);
+                byteArrayOutputStream.write((int) (fileSize >> 8) & 0xFF);
+                byteArrayOutputStream.write((int) fileSize & 0xFF);
+                byteArrayOutputStream.write(0);
+            }
         }
-    }
 
         return new DatagramPacket(byteArrayOutputStream.toByteArray(), byteArrayOutputStream.size(), serverAddress, SERVER_PORT);
     }
