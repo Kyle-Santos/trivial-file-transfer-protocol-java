@@ -1,0 +1,203 @@
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+
+public class Client {
+    private static final int SERVER_PORT = 69;
+    private static final int TIMEOUT = 10000; // 10 seconds
+    private static InetAddress serverAddress = null;
+    private static String remoteFile = null;
+    private static int blocksize = 516;
+
+    // TFTP OP Code
+	private static final byte OP_RRQ = 1;
+    private static final byte OP_WRQ = 2;
+	private static final byte OP_DATAPACKET = 3;
+	private static final byte OP_ACK = 4;
+	private static final byte OP_ERROR = 5;
+
+    public static void main(String[] args) {
+        if (args.length < 3 || args.length > 4) {
+            System.out.println("Usage: java TFTPClient <server_ip> <operation> <local_file> [<remote_file>]");
+            return;
+        }
+
+        String serverIP = args[0];
+        String operation = args[1].toLowerCase();
+        String localFile = args[2];
+        remoteFile = (args.length == 4) ? args[3] : null;
+
+        System.out.println("Current Setting:\nBlocksize: " + blocksize + "\nOperation: " + operation);
+
+        try (DatagramSocket socket = new DatagramSocket()) {
+            serverAddress = InetAddress.getByName(serverIP);
+            socket.setSoTimeout(TIMEOUT);
+
+            switch (operation) {
+                case "upload":
+                    uploadFile(socket, localFile);
+                    break;
+                case "download":
+                    System.out.println("Downloading...");
+                    downloadFile(socket, localFile);
+                    break;
+                default:
+                    System.out.println("Invalid operation. Use 'upload' or 'download'.");
+                    break;
+            }
+        } catch (IOException e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+
+    private static void uploadFile(DatagramSocket socket, String localFile) throws IOException {
+        // Implementation for uploading file
+        byte[] data = new byte[516];
+        DatagramPacket packet;
+        FileInputStream fileInputStream = new FileInputStream(localFile);
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        
+        // Create WRQ packet
+        packet = createRequest(OP_WRQ);
+
+        // sending write request to TFTP server 
+        socket.send(packet);
+        System.out.println("WRQ sent.");
+        
+        // Receiving ACK
+        packet = new DatagramPacket(data, data.length);
+        socket.receive(packet);
+
+        int blockNumber = 1;
+
+        int bytesRead;
+
+        while ((bytesRead = fileInputStream.read(data, 4, data.length - 4)) != -1) {
+            System.out.println("Packet count: " + blockNumber);
+
+            // write opcode and block number in to the byte array output stream
+            writeOPCodeBlock(byteArrayOutputStream, blockNumber, OP_DATAPACKET);
+
+            // write data bytes
+            byteArrayOutputStream.write(data, 4, bytesRead);
+            
+            // send data packet
+            packet = new DatagramPacket(byteArrayOutputStream.toByteArray(), byteArrayOutputStream.size(), serverAddress, packet.getPort());
+            socket.send(packet);
+            
+            // Receiving ACK
+            packet = new DatagramPacket(data, data.length);
+            socket.receive(packet);
+            blockNumber++;
+        }
+        
+        // Close file stream
+        fileInputStream.close();
+    }
+
+    private static void downloadFile(DatagramSocket socket, String localFile) throws IOException {
+        // Implementation for downloading file
+        byte[] data = new byte[516];
+        DatagramPacket inpacket, outpacket ;
+        DatagramPacket ack = null;
+        FileOutputStream fileOutputStream = new FileOutputStream(localFile);
+        ByteArrayOutputStream packetStream = new ByteArrayOutputStream();;
+        
+        outpacket = createRequest(OP_RRQ);
+
+        // sending read request to TFTP server 
+        socket.send(outpacket);
+        System.out.println("RRQ sent.");
+        
+        // Track block number of ACKs
+        int blockNumber = 1;
+
+        // Receive data packets
+        while (true) {
+            System.out.println("Packet count: " + blockNumber);
+            inpacket = new DatagramPacket(data, data.length, serverAddress, socket.getLocalPort());
+
+            // receive packet from TFTP server
+            socket.receive(inpacket);
+
+            // Extract block number from the received packet
+            int receivedBlockNumber = ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
+
+            // Check if received block number matches expected block number
+            if (receivedBlockNumber == blockNumber) {
+                // Write data to file
+                fileOutputStream.write(data, 4, inpacket.getLength() - 4);
+                
+                // Create and send ack packet
+                writeOPCodeBlock(packetStream, blockNumber, OP_ACK);
+                ack = new DatagramPacket(packetStream.toByteArray(), packetStream.size(), serverAddress, inpacket.getPort());
+                socket.send(ack);
+
+                // Increment block number for next expected block
+                blockNumber++;
+
+                // Check if last data block received
+                if (inpacket.getLength() < 516) {
+                    System.out.println(inpacket.getLength() + "..");
+                    System.out.println("last packet!");
+                    break; // Exit loop if last data block received
+                }
+            } 
+        }
+        
+        System.out.println("Downloading done.");
+        // Close file stream
+        fileOutputStream.close();
+    }
+
+    private static DatagramPacket createRequest(byte OP) throws IOException {
+        // creating the initial RRQ packet
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byteArrayOutputStream.write(0);
+        byteArrayOutputStream.write(OP);
+        byteArrayOutputStream.write(remoteFile.getBytes());
+        byteArrayOutputStream.write(0);
+        byteArrayOutputStream.write("octet".getBytes());
+        byteArrayOutputStream.write(0);
+
+        // blksize request
+    if (OP == OP_WRQ) {
+        // Append blksize option (example: blksize 1024)
+        byteArrayOutputStream.write("blksize".getBytes());
+        byteArrayOutputStream.write(0);
+        byteArrayOutputStream.write("1024".getBytes()); // Adjust the block size as needed
+        byteArrayOutputStream.write(0);
+    }
+
+    // tsize request
+    if (OP == OP_WRQ && remoteFile != null) {
+        File file = new File(remoteFile);
+        long fileSize = file.length();
+        if (fileSize > 0) {
+            // Append tsize option
+            byteArrayOutputStream.write("tsize".getBytes());
+            byteArrayOutputStream.write(0);
+            byteArrayOutputStream.write(String.valueOf(fileSize).getBytes());
+            byteArrayOutputStream.write(0);
+        }
+    }
+
+        return new DatagramPacket(byteArrayOutputStream.toByteArray(), byteArrayOutputStream.size(), serverAddress, SERVER_PORT);
+    }
+
+    private static ByteArrayOutputStream writeOPCodeBlock(ByteArrayOutputStream packetStream, int blockNumber, byte OP) throws IOException {
+        packetStream.reset();
+        packetStream.write(0);
+        packetStream.write(OP);
+        packetStream.write((byte) (blockNumber >> 8));
+        packetStream.write((byte) blockNumber);
+
+        return packetStream;
+    }
+}
