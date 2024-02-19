@@ -112,7 +112,7 @@ public class Client {
         int bytesRead;
 
         while ((bytesRead = fileInputStream.read(data, 4, data.length - 4)) != -1) {
-            System.out.println("bytes: " + data.length);
+            System.out.println("Packet count: " + blockNumber);
 
             // write opcode and block number in to the byte array output stream
             writeOPCodeBlock(byteArrayOutputStream, blockNumber, OP_DATAPACKET);
