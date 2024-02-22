@@ -1,3 +1,14 @@
+/*
+    Download Operation (download)
+        local file - directory where you are saving the file + the the file (ex. client-files/TestDownloadA.jpg)
+        remote file - file to get from the server (ex. FileA.jpg)
+
+    Upload Operation (upload)
+        local file - directory where the client file is located + the file (ex. client-files/FileA.jpg)
+        remote file - file name of the client file to be uploaded to the server (ex. TestUploadA.jpg)
+ */
+
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,11 +21,11 @@ import java.util.Scanner;
 
 public class Client {
     private static final int SERVER_PORT = 69;
-    private static final int TIMEOUT = 10000; // 10 seconds
+    private static final int TIMEOUT = 5000; // 5 seconds
     private static InetAddress serverAddress = null;
     private static String localFile = null;
     private static String remoteFile = null;
-    private static int blocksize = 516;
+    private static int blocksize = 512;
 
     // TFTP OP Code
 	private static final byte OP_RRQ = 1;
@@ -25,7 +36,7 @@ public class Client {
 
     public static void main(String[] args) {
         if (args.length < 3 || args.length > 4) {
-            System.out.println("Usage: java TFTPClient <server_ip> <operation> <local_file> [<remote_file>]");
+            System.out.println("Usage: java Client <server_ip> <operation> <local_file> <remote_file>");
             return;
         }
 
@@ -60,6 +71,7 @@ public class Client {
             }
         } while (!input.equals("1"));
 
+        scan.close();
 
         try (DatagramSocket socket = new DatagramSocket()) {
             serverAddress = InetAddress.getByName(serverIP);
@@ -70,7 +82,7 @@ public class Client {
                     uploadFile(socket);
                     break;
                 case "download":
-                    System.out.println("Downloading...");
+                    System.out.println("\nDownloading...");
                     downloadFile(socket);
                     break;
                 default:
@@ -85,7 +97,7 @@ public class Client {
 
     private static void uploadFile(DatagramSocket socket) throws IOException {
         // Implementation for uploading file
-        byte[] data = new byte[blocksize];
+        byte[] data = new byte[blocksize + 4];
         DatagramPacket packet;
         FileInputStream fileInputStream = new FileInputStream(localFile); 
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -95,23 +107,38 @@ public class Client {
 
         // sending write request to TFTP server 
         socket.send(packet);
-        System.out.println("WRQ sent.");
+        System.out.println("\nWRQ sent.");
         
         // Receiving ACK or error packet
         packet = new DatagramPacket(data, data.length);
-        socket.receive(packet);
+
+        try {
+            socket.receive(packet);
+        } catch (IOException e) {
+            System.out.println("\nError: Failed to contact server.");
+            return;
+        }
 
         // Check if received packet is an error packet
         if (data[1] == OP_ERROR) {
             handleTFTPError(packet);
             return;
-        }
+        } 
 
         int blockNumber = 1;
-
         int bytesRead;
 
-        while ((bytesRead = fileInputStream.read(data, 4, data.length - 4)) != -1) {
+        while (true) {
+            bytesRead = fileInputStream.read(data, 4, data.length - 4);
+
+            if (bytesRead == -1) {
+                // write opcode and block number in to the byte array output stream
+                writeOPCodeBlock(byteArrayOutputStream, blockNumber, OP_DATAPACKET);
+                packet = new DatagramPacket(byteArrayOutputStream.toByteArray(), byteArrayOutputStream.size(), serverAddress, packet.getPort());
+                socket.send(packet);
+                break;
+            }
+
             System.out.println("Packet count: " + blockNumber);
 
             // write opcode and block number in to the byte array output stream
@@ -134,7 +161,9 @@ public class Client {
                 handleTFTPError(packet);
                 return;
             }
-        }
+        } 
+
+        System.out.println("You have successfully uploaded the file.");
         
         // Close file stream
         fileInputStream.close();
@@ -142,7 +171,7 @@ public class Client {
 
     private static void downloadFile(DatagramSocket socket) throws IOException {
         // Implementation for downloading file
-        byte[] data = new byte[blocksize];
+        byte[] data = new byte[blocksize + 4];
         DatagramPacket inpacket, outpacket ;
         DatagramPacket ack = null;
         FileOutputStream fileOutputStream = new FileOutputStream(localFile);
@@ -152,7 +181,28 @@ public class Client {
 
         // sending read request to TFTP server 
         socket.send(outpacket);
-        System.out.println("RRQ sent.");
+        System.out.println("\nRRQ sent.");
+
+        // Receiving ACK or error packet
+        inpacket = new DatagramPacket(data, data.length);
+
+        try {
+            socket.receive(inpacket);
+        } catch (IOException e) {
+            System.out.println("\nError: Failed to contact server.");
+            return;
+        }
+
+        // Check if received packet is an error packet
+        if (data[1] == OP_ERROR) {
+            handleTFTPError(inpacket);
+            return;
+        } else {
+            // Create and send ack packet
+            writeOPCodeBlock(packetStream, 0, OP_ACK);
+            ack = new DatagramPacket(packetStream.toByteArray(), packetStream.size(), serverAddress, inpacket.getPort());
+            socket.send(ack);
+        }
         
         // Track block number of ACKs
         int blockNumber = 1;
@@ -189,14 +239,12 @@ public class Client {
 
                 // Check if last data block received
                 if (inpacket.getLength() < 516) {
-                    System.out.println(inpacket.getLength() + "..");
-                    System.out.println("last packet!");
                     break; // Exit loop if last data block received
                 }
             } 
         }
         
-        System.out.println("Downloading done.");
+        System.out.println("\nDownloading of the file is successful.");
         // Close file stream
         fileOutputStream.close();
     }
@@ -214,7 +262,7 @@ public class Client {
         // blksize request | Append blksize option (example: blksize 1024)
         byteArrayOutputStream.write("blksize".getBytes());
         byteArrayOutputStream.write(0);
-        byteArrayOutputStream.write(Integer.toString(blocksize - 4).getBytes());
+        byteArrayOutputStream.write(Integer.toString(blocksize).getBytes());
         byteArrayOutputStream.write(0);
 
         // tsize request
